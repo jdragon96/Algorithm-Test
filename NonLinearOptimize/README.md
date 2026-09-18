@@ -171,7 +171,13 @@ Trust region을 $\lambda$ 대신 반경 $\Delta$ 로 직접 다룬다. Cauchy po
 ## 4.5. 체크포인트
 
 - gain ratio를 붙인 LM과 고정 $\lambda$ LM의 수렴 곡선 비교 (BA 노트북에 그대로 이식 가능)
-- 초기값을 크게 흔들었을 때 GN은 발산하고 LM은 버티는가
+- $J$ 를 rank 결핍으로 만들면 GN은 죽고 LM은 사는가
+- LM의 비용이 **한 번도 증가하지 않는가** (step rejection이 보장하는 성질)
+
+한 가지는 미리 못 박아 둔다. **LM은 전역최소를 찾아주지 않는다.** damping이 보장하는 것은
+"터지지 않는다"와 "나빠지지 않는다"까지고, 어느 국소최소로 갈지는 초기값이 정한다. 실제로
+나쁜 초기값에서는 스텝을 거부하는 LM이 먼저 정체하고, 거칠게 움직이는 GN이 더 좋은 골짜기로
+넘어가 버리는 경우도 있다 — `03` 노트북에 그 반례를 그대로 남겨 두었다.
 
 > 목표 노트북: `03_gauss_newton_lm_trust_region.ipynb`
 
@@ -270,7 +276,7 @@ $$ \exp([\delta\theta]_{\times})R \quad (\text{left}) \qquad\text{vs}\qquad R\ex
 ## 7.3. 체크포인트
 
 - 해석적 Jacobian과 수치 미분의 차이가 $10^{-6}$ 수준인가 (이 한 줄이 규약 실수를 거의 다 잡는다)
-- left/right를 일부러 섞으면 어디서부터 어긋나는가
+- left/right를 일부러 섞으면 수렴 **속도**가 어떻게 달라지는가 — 터지지 않는다는 것이 함정이다
 
 > 목표 노트북: `06_manifold_optimization.ipynb`
 
@@ -309,14 +315,23 @@ Stage 7  그 밖                제약 / convex / stochastic
 
 노트북 규약은 [BundleAdjustment](../SLAM/LiDAR/BundleAdjustment.ipynb)·[OpticalFlow](../SLAM/Visual/OpticalFlow.ipynb) 와 같다 — 유도 → 참값을 아는 합성 데이터 → 박스 수식당 코드 셀 하나 → 메인 루프 → 검증.
 
-| 노트북 | 무엇을 증명하는가 | 선행 |
-|---|---|---|
-| `01_least_squares_and_conditioning` | $\kappa$ 를 키우면 normal equation이 QR보다 먼저 무너진다 | — |
-| `02_line_search_methods` | Rosenbrock에서 GD ≫ BFGS > Newton (반복 횟수) | 01 |
-| `03_gauss_newton_lm_trust_region` | 큰 초기 오차에서 GN은 발산, LM은 수렴 | 02 |
-| `04_robust_loss_and_irls` | outlier 10%를 섞으면 $L_2$ 는 깨지고 Huber는 버틴다 | 03 |
-| `05_sparse_ba_schur` | frame 수에 따른 dense vs Schur 실행시간 곡선 | 03 |
-| `06_manifold_optimization` | 해석 Jacobian과 수치 미분 오차 $< 10^{-6}$ | 03 |
+전부 작성해 실행까지 마쳤다. 아래 숫자는 노트북을 그대로 돌려 나온 값이다.
+
+| 노트북 | 무엇을 증명하는가 | 실측 | 선행 |
+|---|---|---|---|
+| `01_least_squares_and_conditioning` | 오차가 normal equation은 $\kappa^2$, QR은 $\kappa$ 로 자란다 | 로그-로그 기울기 **1.99 / 0.91** | — |
+| `02_line_search_methods` | Rosenbrock에서 GD ≫ BFGS > Newton | **19436 / 36 / 22** 회 | 01 |
+| `03_gauss_newton_lm_trust_region` | $J$ 가 rank 결핍이면 GN은 죽고 LM은 산다 | GN `LinAlgError` / LM 수렴 (RMS **0.93 → 0.0071**) | 02 |
+| `04_robust_loss_and_irls` | outlier 10%에서 $L_2$ 는 깨지고 robust loss는 버틴다 | $\lVert\theta-\theta^*\rVert$ **0.91 / 0.17 / 0.044 / 0.026** ($L_2$/Huber/Cauchy/Tukey) | 03 |
+| `05_sparse_ba_schur` | Schur는 dense와 **같은 답**을 더 싸게 준다 | 차이 **2.8e-16**, landmark 640에서 **7.7배**, 기울기 2.07 vs 1.23 | 03 |
+| `06_manifold_optimization` | 좌/우 섭동을 섞으면 Jacobian이 틀린다 | 일치 **1.9e-10** / 섞음 **0.80** | 03 |
+
+`06` 에서 하나 더 얻었다. **규약을 섞어도 발산하지 않는다.** $J^{T}J$ 가 양정부호인 한 방향은
+여전히 내리막이라 같은 최소점에 도착하고, 다만 Newton 스텝이 아니게 되어 **2차 수렴이 1차로
+떨어진다** (2회 → 12회). 작은 문제에서는 반복 몇 번 더 도는 것으로 끝나 알아채지 못하고,
+큰 BA에서는 solver 탓으로 착각하게 된다. 중앙차분 대조가 유일한 방어선인 이유다.
+
+공유 모듈은 `problems.py` 다. 여섯 문제의 생성기와 참값, SO(3) 헬퍼가 들어 있다.
 
 검증은 전부 **참값 대비 숫자**로 한다. 합성 데이터라 참값을 알고 있으므로, "수렴했다"가 아니라 "맞게 수렴했다"까지 말할 수 있어야 한다.
 
